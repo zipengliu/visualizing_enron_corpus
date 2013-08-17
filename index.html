@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Email Analyzer</title>
+		<script type="text/javascript" src="d3/d3.v3.js"></script>
+		<style type="text/css">
+			.link {
+				stroke: #000;
+				stroke-width: 0.5px;
+			}
+
+			.node {
+				cursor: move;
+                /*
+				fill: #ccc;
+				stroke: #000;
+				stroke-width: 1px;
+                */
+			}
+            
+            #tooltip {
+                position:absolute;
+                padding:0px;
+                background-color: rgba(203, 149, 116, 0.4);
+                background: rgba(203, 149, 116, 0.4);
+                color: rgba(203, 149, 116, 0.4);
+            }
+            
+            #tooltip.hidden{
+                display:none;
+            }
+            
+            #tooltip p {
+                text-anchor: middle;
+                font-family: sans-serif;
+                font-size: 20px;
+                color:black;
+            }
+		
+		</style>
+	</head>
+	<body>
+		<script type="text/javascript" charset="utf-8">
+            var myName = "winnieliupku@gmail.com",
+                edges = [],
+                links = [],
+                ids = [];
+            var nodes = {},
+                nnodes = 1;
+                nodes[myName] = 0;
+            
+            var width = 960,
+                height = 700;
+
+			var addNode = function(name) {
+				if (!nodes.hasOwnProperty(name)) {
+					nodes[name] = nnodes;
+					nnodes++; 
+				}
+			}
+
+			var process = function(emails) {
+				
+                //alert(emails.length);
+				for (var i = 0; i < emails.length; i++) {
+
+					var from = emails[i]["From"],
+					to = emails[i]["To"],
+					cc = emails[i]["Cc"];
+					addNode(from);
+					for (var j = 0; j < to.length; j++)
+						addNode(to[j]);
+					for (var j = 0; j < cc.length; j++)
+						addNode(cc[j]);
+				}
+                
+                // Initialize the edges
+                for (var i = 0; i < nnodes; i++) {
+                    edges[i] = [];
+                    for (var j = 0; j < nnodes; j++) edges[i][j] = 0;
+                }
+                
+                // Calculate the tightness
+                // From - to : contribute 2 points; otherwise, 1 points
+				for (var i = 0; i < emails.length; i++) {
+					var from = nodes[emails[i]["From"]],
+					to = emails[i]["To"],
+					cc = emails[i]["Cc"];
+                    
+                    for (var j = 0; j < to.length; j++) {
+                        edges[from][nodes[to[j]]] += 2;
+                        edges[nodes[to[j]]][from] += 2;
+                        for (var k = 0; k < cc.length; k++) {
+                            edges[nodes[to[j]]][nodes[cc[k]]]++;
+                            edges[nodes[cc[k]]][nodes[to[j]]]++;
+                        }
+                    }
+                    
+                    for (var k = 0; k < cc.length; k++) {
+                        edges[from][nodes[cc[k]]]++;
+                        edges[nodes[cc[k]]][from]++;
+                    }
+				}
+                
+                // Compute the ids and links array
+                for (var i in nodes) ids[nodes[i]] = {"name": i};
+                for (var i in nodes)
+                    for (var j in nodes)
+                        if (edges[nodes[i]][nodes[j]] > 0) 
+                            links.push({"source": nodes[i], "target": nodes[j]});
+                    
+			}
+
+			d3.json("mail.json", function(data) {
+				process(data);
+				alert("process ok!")
+					
+            });
+		</script>
+        
+        <!-- use a hidden tooltip which will show up when mouse is over-->
+        <div id="tooltip" class="hidden">
+            <p id="value"></p>
+        </div>            
+	</body>
+</html>
