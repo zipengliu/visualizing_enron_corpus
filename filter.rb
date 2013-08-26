@@ -1,71 +1,80 @@
 #!/usr/bin/env ruby
-# encoding: utf-8
 
+require "json"
 require "./travel.rb"
 include Travel
-
-def get_from_address(filename)
-	File.open(filename) do |f|
-		while (line = f.gets and /^\S/ =~ line)
-			if /^From:\s/ =~ line then
-				return line.gsub(/^From:\s/, "").delete("\n\r")
-			end
-		end
-	end
-end
-
-def get_add(path)
-	list = []
-	Travel.travel(path, 0, 1) do |person|
-		has_sent = false
-		Travel.travel(person, 0, 1) do |dir|
-			if /sent/ =~ dir then			# select the sent mail directory to get his address
-				Travel.travel(dir, 0, 1) do |f|
-					list.push(get_from_address(f))
-					has_sent = true
-					break
-				end
-				break
-			end
-		end
-		if !has_sent then
-			#puts person.concat(" has no sent mails!")
-		end
-	end
-	# add one address manually
-	list.push("steven.harris@enron.com")
-end
 
 def load_json_file(path)
 	File.open(path) {|f| JSON.load(f)}
 end
 
-def filter(data, filter_list)
-	data_filtered = []
-	data.each do |mail|
-		mail_filtered = {}
-		mail_filtered["From"] = (filter_list.include?(mail["From"]))? mail["From"] : nil
-		mail_filtered["Date"] = mail["Date"]
-		if mail["To"].nil? then
-			mail_filtered["To"] = nil
+def compare_email(a, b)
+	#a comparison between a and b, and return -1, when a follows b, 0 when a and b are equivalent, or +1 if b follows a.
+	require "Date"
+	da = DateTime.parse(a["Date"])
+	db = DateTime.parse(b["Date"])
+	if da < db then
+		1
+	else
+		if da > db then
+			-1
 		else
-			mail_filtered["To"] = mail["To"].select {|add| filter_list.include?(add)}
+			0
 		end
-		if mail["Cc"].nil? then
-			mail_filtered["Cc"] = nil
-		else
-			mail_filtered["Cc"] = mail["Cc"].select {|add| filter_list.include?(add)}
-		end
-		data_filtered.push(mail_filtered)
 	end
-	data_filtered
 end
 
-def dump(file, data)
+def standardize_date(date) 
+	date
+end
+
+def search_name(a, x)
+	p = a.index(x)
+	if p.nil? and x.include?(" ") then
+		tmp = x.split(" ")
+		if x.length == 2 then
+			a.each_index do |i|
+				if a[i].include?(tmp[0]) and a[i].include?(tmp[1]) then
+					return i
+				end
+			end
+		end
+	end
+	p
+end
+
+def filter(data, filter_list)
+	filtered = []
+	data.each do |mail|
+		mail_filtered = {}
+		mail_filtered["XFrom"] = search_name(filter_list, mail["XFrom"])
+		mail_filtered["Date"] = standardize_date(mail["Date"])
+		if mail["XTo"].nil? then
+			mail_filtered["XTo"] = nil
+		else
+			tmp  = mail["XTo"].map {|add| search_name(filter_list, add)}
+			mail_filtered["XTo"] = tmp.reject {|x| x.nil?}
+		end
+		if mail["XCc"].nil? then
+			mail_filtered["XCc"] = nil
+		else
+			tmp  = mail["XCc"].map {|add| search_name(filter_list, add)}
+			mail_filtered["XCc"] = tmp.reject {|x| x.nil?}
+		end
+		filtered.push(mail_filtered)
+	end
+	filtered.sort{|a, b| compare_email(a, b)}
+end
+
+def dump(file, data, pretty = true)
 	# dump it in json
 	require "json"
 
-	json = JSON.pretty_generate(data)
+	if pretty then
+		json = JSON.pretty_generate(data)
+	else
+		json = JSON.generate(data)
+	end
 	#puts json
 
 	File.open(file, "w") do |oufile|
@@ -73,17 +82,30 @@ def dump(file, data)
 	end
 end
 
-mail_path = "./enron_mail_20110402/maildir"
-add_list = get_add(mail_path)
-puts add_list.sort
-puts add_list.length
-
-require "json"
-json_file = "./mail0.json"
+json_file = "./enron_not_sorted.json"
 data = load_json_file(json_file)
 
-data = filter(data, add_list)
+data_filtered = {}
+threads = []
+i = 0
+filter_list = data.keys
 
-dump("mail_filtered.json", data)
+data.each_key do |name|
+	threads[i] = Thread.new() do
+		id = search_name(filter_list, name)
+		data_filtered[id] = {}
+		data[name].each_key do |key|
+			data_filtered[id][key] = filter(data[name][key], filter_list)
+		end
+		puts name
+	end
+	i += 1
+end
+
+name_mapping = Hash[filter_list.map.with_index {|x, i| [i, x]}]
+dump("name_mapping.json", name_mapping)
+threads.each() {|t| t.join()}
+
+dump("enron_filtered_sorted.json", data_filtered)
 
 puts "Done"

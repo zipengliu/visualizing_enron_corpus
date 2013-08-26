@@ -5,6 +5,8 @@ module ExtractMail
 
 require "Date"
 require "iconv"
+require "test/unit"
+include Test::Unit::Assertions
 $converter = Iconv.new("UTF-8", "latin1")
 
 def process_mail(filename)
@@ -67,6 +69,70 @@ def process_mail(filename)
 		end
 	end
 
+	email
+end
+
+# extract a list of full names out of a string
+def extract_full_names(s)
+	s = " ".concat(s).concat(" ")
+	#puts "###############################################"
+	#puts s
+	list = s.scan(/\s'?"?\w+,?\s\w+[,']?\.?\s?\w*\s?&?\s?\w*"?'?\s/)
+	#puts "=>", list
+	list.map! do |name| 
+		tmp = name.sub(/^\s*/, "").sub(/\s*$/, "").sub(/<.+>/, "").sub(/,$/, "").delete("\"\'\.")
+		if tmp.include?(",") and !tmp.include?("&")then
+			l = tmp.split(",")
+			l[1].sub!(/^\s*/, "")
+			#assert(l.length == 2, "fails at #{tmp} out of #{s}")
+			if (l.length != 2) then
+				tmp = ""
+			else
+				tmp = l[1].concat(" ").concat(l[0])
+			end
+		end
+		tmp
+	end
+	list
+end
+
+def process_mail_xfields(filename)
+	email = {}
+	File.open(filename, "r") do |file|
+		while (line = $converter.iconv(file.gets) and /^\S/ =~ line)
+			if /^X-From:\s/i =~ line then
+				tmp = line.sub(/^X-From:\s/, "").delete("\r\n")			
+				tmp2 = extract_full_names(tmp)
+				if !tmp2.empty? then
+					email[:XFrom] = tmp2[0]
+				else
+					email[:XFrom] = []
+				end
+			else
+				if /^Date:\s/ =~ line then
+					email[:Date] = line.sub(/^Date:\s/, "").delete("\r\n")
+				else
+					if /^X-To:\s/ =~ line or /^X-Cc:\s/i =~ line then
+						#tmp = line.sub(/^X-\w*:\s/, "").delete("\r\n")			
+						tmp = line
+						while (line = $converter.iconv(file.gets) and /^\s/ =~ line)
+							tmp += line
+						end
+						if /^X-To:\s/i =~ tmp then
+							tmp.sub!(/^X-To:\s/, "").delete("\r\n")			
+							email[:XTo] = extract_full_names(tmp)
+						else
+							tmp.sub!(/^X-Cc:\s/, "").delete("\r\n")			
+							email[:XCc] = extract_full_names(tmp)
+						end
+					end
+				end
+			end
+		end
+	end
+	if !email.has_key?(:XFrom) then
+		email[:XFrom] = []
+	end
 	email
 end
 

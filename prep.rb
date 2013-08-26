@@ -79,44 +79,59 @@ def add_address(person, address, mail, mode)
 	address
 end
 
+# counting the running time 
 beginning_time = Time.now
-
 
 #mails_path = "./enron_mail_20110402/maildir"
 mails_path = "./test"
-i = 0
-j = 0
-threads = []
-results = []
 
+# Get the full names out of each person's send box
+# Travel the whole mailboxes
+
+i = 0
+threads = []
 data = {}
-address = {}
+#address = {}
 
 require "./travel.rb"
 include Travel
 Travel.travel(mails_path, 0, 1) do |person_maildir|
 	person = File.basename(person_maildir)
+	full_name = ""
 	threads[i] = Thread.new() do
 		sent = []
 		recv = []
-		address[person] = []
+		#address[person] = []
 		Travel.travel(person_maildir, 0, 1) do |subdir| 
 			if /sent/ =~ subdir then
 				# The mail he sent
 				Travel.travel(subdir, 0, 0) do |f|
-					mail = ExtractMail.process_mail(f)
-					address[person] = add_address(person, address[person], mail, 0)
-					mail.delete(:From)
+					#mail = ExtractMail.process_mail(f)
+					#address[person] = add_address(person, address[person], mail, 0)
+					#mail.delete(:From)
+					mail = ExtractMail.process_mail_xfields(f)
+					if !mail[:XFrom].empty? and mail[:XFrom].length > full_name.length then
+						full_name = mail[:XFrom]
+					end
 					sent.push(mail)
 				end
 			else 
 				if /delete/ !~ subdir then
 					# The mail he received
 					Travel.travel(subdir, 0, 0) do |f|
-						mail = ExtractMail.process_mail(f)
-						address[person] = add_address(person, address[person], mail, 1)
-						mail.delete(:To)
-						mail.delete(:Cc)
+						#mail = ExtractMail.process_mail(f)
+						#address[person] = add_address(person, address[person], mail, 1)
+						#mail.delete(:To)
+						#mail.delete(:Cc)
+						mail = ExtractMail.process_mail_xfields(f)
+						if full_name.empty? and mail.has_key?(:XTo) then
+							mail[:XTo].each do |name|
+								if name.include?(" ") and person.include?(name.split(" ").last.downcase) then
+									full_name = name
+									break
+								end
+							end
+						end
 						recv.push(mail)
 					end
 				end
@@ -125,10 +140,14 @@ Travel.travel(mails_path, 0, 1) do |person_maildir|
 		#dump(File.join("enron_corpus", person, "sent.json"), sent.sort{|a, b| compare_email(a, b)})
 		#dump(File.join("enron_corpus", person, "recv.json"), recv.sort{|a, b| compare_email(a, b)})
 		
-		data[person] = {}
-		data[person][:sent] = sent
-		data[person][:recv] = recv
-		puts "#{person}   \tSent: #{sent.length}\tRecv: #{recv.length}"
+		data[full_name] = {}
+		data[full_name][:sent] = sent
+		data[full_name][:recv] = recv
+		if full_name.empty? then
+			printf "???%17s \tSent: #{sent.length}\tRecv: #{recv.length}\n", person
+		else
+			printf "%20s \tSent: #{sent.length}\tRecv: #{recv.length}\n", full_name
+		end
 	end
 	i += 1
 end
@@ -136,8 +155,8 @@ end
 threads.each() {|t| t.join()}
 
 dump("enron.json", data)
-puts address
-dump("addresses.json", address)
+#puts address
+#dump("addresses.json", address)
 
 end_time = Time.now
 puts "Time elapsed #{(end_time - beginning_time)} seconds"
